@@ -223,7 +223,7 @@ def index():
 
 @app.route('/api/search', methods=['POST', 'OPTIONS'])
 def search():
-    """独立的搜索API端点"""
+    """搜索API端点：搜索、提取内容、AI总结"""
     # 处理CORS预检请求
     if request.method == 'OPTIONS':
         response = jsonify({})
@@ -259,32 +259,141 @@ def search():
                 'error': '请输入搜索关键词'
             }), 400
         
-        # 优先使用Google API，如果没有配置则使用简化版
+        # 搜索相关网页
         has_api = bool(GOOGLE_API_KEY and GOOGLE_SEARCH_ENGINE_ID)
-        logger.info(f"搜索请求: query={query}, has_api={has_api}, API_KEY={bool(GOOGLE_API_KEY)}, SEARCH_ENGINE_ID={bool(GOOGLE_SEARCH_ENGINE_ID)}")
+        logger.info(f"搜索请求: query={query}, has_api={has_api}")
         
-        if has_api:
-            logger.info("使用Google Custom Search API进行搜索")
-            results = google_search(query, num_results=10)
-        else:
-            logger.warning("未配置完整Google API，使用简化版搜索")
-            # 使用简化版搜索（返回搜索链接）
-            results = simple_search(query, num_results=10)
+        if not has_api:
+            return jsonify({
+                'success': False,
+                'error': '未配置Google API，无法进行搜索'
+            }), 400
         
-        logger.info(f"搜索完成，返回 {len(results)} 个结果")
-        return jsonify({
-            'success': True,
-            'results': results,
-            'using_api': has_api
-        })
+        # 搜索网页
+        logger.info("使用Google Custom Search API进行搜索")
+        search_results = google_search(query, num_results=5)
+        
+        if not search_results:
+            return jsonify({
+                'success': False,
+                'error': '未找到相关搜索结果'
+            }), 404
+        
+        # 提取网页内容（限制数量，避免超时）
+        logger.info(f"开始提取 {min(len(search_results), 3)} 个网页的内容...")
+        print(f"开始提取 {min(len(search_results), 3)} 个网页的内容...")
+        enriched_results = []
+        max_extract = min(len(search_results), 3)  # 最多提取3个，避免超时
+        for i, result in enumerate(search_results[:max_extract], 1):
+            try:
+                logger.info(f"正在提取网页 {i}/{max_extract}: {result['link']}")
+                print(f"正在提取网页 {i}/{max_extract}: {result['link']}")
+                content = extract_webpage_content(result['link'], max_length=1000)  # 减少内容长度
+                if content:
+                    result['content'] = content
+                    enriched_results.append(result)
+                else:
+                    # 即使提取失败，也保留搜索结果（至少有用摘要）
+                    enriched_results.append(result)
+            except Exception as extract_error:
+                logger.warning(f"提取网页 {i} 失败: {str(extract_error)}")
+                # 继续处理下一个
+                enriched_results.append(result)
+        
+        logger.info(f"成功提取 {len(enriched_results)} 个网页的内容")
+        print(f"成功提取 {len(enriched_results)} 个网页的内容")
+        
+        # 构建AI总结提示词（英文）
+        summary_prompt = f"Please summarize the following search results about '{query}', extract key information and organize it into a clear summary:\n\n"
+        for i, result in enumerate(enriched_results, 1):
+            summary_prompt += f"=== Source {i} ===\n"
+            summary_prompt += f"Title: {result.get('title', 'No title')}\n"
+            if 'content' in result and result['content']:
+                summary_prompt += f"Content: {result['content']}\n\n"
+            else:
+                summary_prompt += f"Summary: {result.get('snippet', 'No summary')}\n\n"
+        
+        summary_prompt += "Please generate a concise and comprehensive summary based on the above information, including main points and key content. Write in English."
+        
+        # 调用AI进行总结
+        logger.info("正在使用AI总结搜索结果...")
+        try:
+            response = client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a professional information analyst expert, skilled at extracting and summarizing key information from multiple sources. Your summaries should be concise, accurate, and well-organized. Always respond in English."
+                    },
+                    {
+                        "role": "user",
+                        "content": summary_prompt
+                    }
+                ],
+                temperature=0.7,
+                max_tokens=1500,
+                timeout=120  # 增加超时时间到120秒
+            )
+            
+            if not response or not response.choices:
+                raise Exception("API返回数据格式错误")
+            
+            summary = response.choices[0].message.content
+            logger.info("AI总结完成")
+            
+            # 返回总结和参考链接
+            return jsonify({
+                'success': True,
+                'summary': summary,
+                'references': [{'title': r.get('title', ''), 'link': r.get('link', '')} for r in enriched_results],
+                'using_api': True
+            })
+        except Exception as api_error:
+            import traceback
+            api_error_detail = traceback.format_exc()
+            logger.error(f"AI总结出错详情: {api_error_detail}")
+            print(f"AI总结出错详情: {api_error_detail}")
+            
+            # 提供更详细的错误信息
+            error_str = str(api_error)
+            error_msg = "AI summary is temporarily unavailable. "
+            
+            if '401' in error_str or 'Unauthorized' in error_str:
+                error_msg += "API key is invalid or expired. Please check your DeepSeek API key configuration."
+            elif '429' in error_str:
+                error_msg += "API rate limit exceeded. Please try again later."
+            elif 'timeout' in error_str.lower():
+                error_msg += "Request timeout. Please try again."
+            else:
+                error_msg += f"Error: {error_str[:200]}"
+            
+            # 如果AI总结失败，至少返回搜索结果和错误信息
+            return jsonify({
+                'success': True,
+                'summary': error_msg + '\n\nHere are the search results:',
+                'references': [{'title': r.get('title', ''), 'link': r.get('link', '')} for r in enriched_results],
+                'using_api': True,
+                'summary_error': True
+            })
+        
     except Exception as e:
         import traceback
         error_detail = traceback.format_exc()
         logger.error(f"搜索错误详情: {error_detail}")
         print(f"搜索错误详情: {error_detail}")
+        
+        # 提供更友好的错误信息
+        error_message = str(e)
+        if 'timeout' in error_message.lower():
+            error_message = 'Request timeout. The search and content extraction process may take longer than expected. Please try again.'
+        elif 'Connection' in error_message:
+            error_message = 'Connection error. Please check your network connection.'
+        else:
+            error_message = f'Search error: {error_message[:200]}'
+        
         return jsonify({
             'success': False,
-            'error': f'搜索时出错：{str(e)}'
+            'error': error_message
         }), 500
 
 @app.route('/api/generate-plan', methods=['POST'])
@@ -320,103 +429,57 @@ def generate_plan():
                 'error': '请填写旅游天数和目的地'
             }), 400
         
-        # 使用谷歌搜索获取目的地信息
-        logger.info(f"正在搜索 {destination} 的相关信息...")
-        print(f"正在搜索 {destination} 的相关信息...")
+        # 直接使用DeepSeek API生成计划，不进行搜索
+        logger.info(f"使用DeepSeek API生成 {days}天 {destination} 的旅游计划")
+        print(f"使用DeepSeek API生成 {days}天 {destination} 的旅游计划")
         
-        search_results = []
-        try:
-            search_results = search_destination_info(destination, days, preferences)
-            logger.info(f"搜索完成，找到 {len(search_results)} 个结果")
-            print(f"搜索完成，找到 {len(search_results)} 个结果")
-        except Exception as search_error:
-            logger.warning(f"搜索过程中出错，继续生成计划: {str(search_error)}")
-            print(f"搜索过程中出错，继续生成计划: {str(search_error)}")
-        
-        # 构建提示词
-        prompt = f"""请为我制定一个详细的{days}天旅游计划，目的地是{destination}。
+        # 构建提示词（不包含搜索结果，使用英文）
+        prompt = f"""Please create a detailed {days}-day travel plan for {destination}.
 
 """
         if budget:
-            prompt += f"预算：{budget}\n\n"
+            prompt += f"Budget: {budget}\n\n"
         if preferences:
-            prompt += f"兴趣偏好：{preferences}\n\n"
+            prompt += f"Preferences: {preferences}\n\n"
         
-        # 如果有搜索结果，添加到提示词中
-        if search_results and len(search_results) > 0:
-            logger.info(f"将 {len(search_results)} 个搜索结果的内容传递给AI进行分析")
-            print(f"将 {len(search_results)} 个搜索结果的内容传递给AI进行分析")
-            # 统计有多少个成功提取了内容
-            content_count = sum(1 for r in search_results if 'content' in r and r['content'])
-            logger.info(f"其中 {content_count} 个成功提取了网页内容")
-            print(f"其中 {content_count} 个成功提取了网页内容")
-            
-            prompt += "以下是从网络搜索并提取的实际网页内容，请仔细阅读这些真实信息，然后基于这些内容制定详细的旅游计划：\n\n"
-            for i, result in enumerate(search_results, 1):
-                prompt += f"=== 信息来源 {i} ===\n"
-                prompt += f"标题：{result.get('title', '无标题')}\n"
-                prompt += f"来源链接：{result.get('link', '无链接')}\n"
-                
-                # 如果有提取的网页内容，使用它；否则使用摘要
-                if 'content' in result and result['content']:
-                    prompt += f"网页实际内容：\n{result['content']}\n\n"
-                    logger.info(f"信息来源 {i}: 使用提取的网页内容 ({len(result['content'])} 字符)")
-                else:
-                    snippet = result.get('snippet', '无摘要')
-                    prompt += f"摘要：{snippet}\n\n"
-                    logger.info(f"信息来源 {i}: 使用摘要 ({len(snippet)} 字符)")
-            
-            prompt += "=== 重要提示 ===\n"
-            prompt += "请仔细分析以上从真实网页提取的内容，包括：\n"
-            prompt += "1. 具体的景点名称、地址和特色\n"
-            prompt += "2. 推荐的餐厅和美食\n"
-            prompt += "3. 住宿建议和价格信息\n"
-            prompt += "4. 交通方式和路线\n"
-            prompt += "5. 最佳旅游时间和注意事项\n"
-            prompt += "6. 预算建议和实用信息\n\n"
-            prompt += "基于这些真实信息，制定一个详细、实用、准确的旅游计划。\n\n"
-        else:
-            logger.warning("没有搜索结果，将仅基于AI知识库生成计划")
-            print("没有搜索结果，将仅基于AI知识库生成计划")
-        
-        prompt += """请按照以下格式提供详细的旅游计划：
+        prompt += """Please provide a detailed travel plan in the following format:
 
-## 旅游计划概览
-- 目的地：[目的地名称]
-- 旅游天数：[天数]
-- 推荐季节：[最佳旅游时间]
+## Travel Plan Overview
+- Destination: [Destination name]
+- Travel Days: [Number of days]
+- Recommended Season: [Best travel time]
 
-## 每日详细行程
+## Daily Itinerary
 
-### 第1天：[日期/主题]
-**上午：**
-- [具体活动和时间]
-- [景点名称和地址]
+### Day 1: [Date/Theme]
+**Morning:**
+- [Specific activities and times]
+- [Attraction names and addresses]
 
-**下午：**
-- [具体活动和时间]
-- [景点名称和地址]
+**Afternoon:**
+- [Specific activities and times]
+- [Attraction names and addresses]
 
-**晚上：**
-- [具体活动和时间]
-- [餐厅推荐]
+**Evening:**
+- [Specific activities and times]
+- [Restaurant recommendations]
 
-**住宿推荐：**
-- [酒店/民宿名称和价格范围]
+**Accommodation Recommendations:**
+- [Hotel/B&B names and price ranges]
 
-**交通建议：**
-- [交通方式和路线]
+**Transportation Suggestions:**
+- [Transportation methods and routes]
 
-### 第2天：[日期/主题]
-[按照相同格式继续...]
+### Day 2: [Date/Theme]
+[Continue in the same format...]
 
-## 实用信息
-- **当地交通：** [交通方式建议]
-- **美食推荐：** [特色美食和餐厅]
-- **注意事项：** [重要提示]
-- **预算估算：** [每日/总预算建议]
+## Practical Information
+- **Local Transportation:** [Transportation suggestions]
+- **Food Recommendations:** [Local specialties and restaurants]
+- **Important Notes:** [Important tips]
+- **Budget Estimate:** [Daily/Total budget suggestions]
 
-请确保计划合理、详细，包含具体的景点、餐厅和活动建议。"""
+Please ensure the plan is reasonable, detailed, and includes specific attractions, restaurants, and activity recommendations. Write everything in English."""
 
         # 调用DeepSeek API
         logger.info("正在调用DeepSeek API...")
@@ -429,7 +492,7 @@ def generate_plan():
                 messages=[
                     {
                         "role": "system",
-                        "content": "你是一位专业的旅游规划师，擅长制定详细、实用的旅游计划。你的回答应该结构清晰、信息准确、建议合理。"
+                        "content": "You are a professional travel planner, skilled at creating detailed and practical travel plans. Your responses should be well-structured, accurate, and provide reasonable suggestions. Always respond in English."
                     },
                     {
                         "role": "user",
@@ -448,23 +511,10 @@ def generate_plan():
             logger.info("API调用成功，返回计划")
             print("API调用成功，返回计划")  # 调试日志
             
-            # 如果有搜索结果，添加参考链接部分
-            if search_results and len(search_results) > 0:
-                plan += "\n\n---\n\n## 📚 参考资料来源\n\n"
-                plan += "本计划基于以下网络资源生成，您可以点击链接查看原文：\n\n"
-                for i, result in enumerate(search_results, 1):
-                    title = result.get('title', '无标题')
-                    link = result.get('link', '')
-                    if link:
-                        plan += f"{i}. [{title}]({link})\n"
-                    else:
-                        plan += f"{i}. {title}\n"
-                plan += "\n*注：以上链接仅供参考，请以实际情况为准。*\n"
-            
             return jsonify({
                 'success': True,
                 'plan': plan,
-                'references': [{'title': r.get('title', ''), 'link': r.get('link', '')} for r in search_results] if search_results else []
+                'references': []  # 生成计划不使用搜索，所以没有参考链接
             })
         except Exception as api_error:
             import traceback

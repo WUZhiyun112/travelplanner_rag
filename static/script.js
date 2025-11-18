@@ -109,24 +109,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 // 将markdown格式转换为HTML（简单处理）
                 planContent.innerHTML = formatPlan(data.plan);
                 
-                // 如果有参考链接，在末尾添加
-                if (data.references && data.references.length > 0) {
-                    let referencesHtml = '<div style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #e0e0e0;">';
-                    referencesHtml += '<h3 style="color: #667eea; margin-bottom: 15px;">📚 参考资料来源</h3>';
-                    referencesHtml += '<p style="color: #666; margin-bottom: 15px;">本计划基于以下网络资源生成，您可以点击链接查看原文：</p>';
-                    referencesHtml += '<ul style="list-style: none; padding: 0;">';
-                    data.references.forEach((ref, index) => {
-                        if (ref.link) {
-                            referencesHtml += `<li style="margin-bottom: 10px;"><a href="${ref.link}" target="_blank" style="color: #667eea; text-decoration: none; word-break: break-all;">${index + 1}. ${ref.title || ref.link}</a></li>`;
-                        } else {
-                            referencesHtml += `<li style="margin-bottom: 10px; color: #666;">${index + 1}. ${ref.title || '无标题'}</li>`;
-                        }
-                    });
-                    referencesHtml += '</ul>';
-                    referencesHtml += '<p style="color: #999; font-size: 0.9em; margin-top: 15px; font-style: italic;">*注：以上链接仅供参考，请以实际情况为准。*</p>';
-                    referencesHtml += '</div>';
-                    planContent.innerHTML += referencesHtml;
-                }
+                // 生成计划功能不使用搜索，所以不显示参考链接
                 
                 // 滚动到结果区域
                 resultContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -179,7 +162,7 @@ document.addEventListener('DOMContentLoaded', function() {
             
             debugLog('开始搜索', { query: query });
             searchBtn.disabled = true;
-            searchBtn.textContent = '搜索中...';
+            searchBtn.textContent = '正在搜索和总结，请稍候...';
             if (searchResults) {
                 searchResults.style.display = 'none';
             }
@@ -205,20 +188,14 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             
             const data = await response.json();
-            debugLog('解析响应数据', { success: data.success, resultsCount: data.results ? data.results.length : 0 });
+            debugLog('解析响应数据', { success: data.success, hasSummary: !!data.summary, referencesCount: data.references ? data.references.length : 0 });
             
-            if (data.success) {
-                displaySearchResults(data.results, data.using_api !== false);
-                if (searchResults) {
-                    searchResults.style.display = 'block';
-                    searchResults.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
-                debugLog('搜索成功，显示结果');
-            } else {
-                const errorMsg = data.error || '搜索失败，请稍后重试';
-                debugLog('搜索失败', { error: errorMsg });
-                alert(errorMsg);
+            displaySearchResults(data);
+            if (searchResults) {
+                searchResults.style.display = 'block';
+                searchResults.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
+            debugLog('搜索完成，显示结果');
         } catch (error) {
             debugLog('搜索出错', { 
                 name: error.name, 
@@ -258,39 +235,46 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
-    function displaySearchResults(results, usingApi = true) {
-        if (results.length === 0) {
-            searchResults.innerHTML = '<p style="text-align: center; color: #999; padding: 20px;">未找到相关结果</p>';
+    function displaySearchResults(data) {
+        if (!data.success) {
+            searchResults.innerHTML = `<div class="error-container"><div class="error-message">${data.error || '搜索失败'}</div></div>`;
             return;
         }
         
-        let html = '<h3 style="margin-bottom: 15px; color: #333;">搜索结果：</h3>';
+        // 显示AI总结的结果
+        let html = '<div style="background: white; padding: 25px; border-radius: 10px; margin-bottom: 20px;">';
+        html += '<h3 style="color: #667eea; margin-bottom: 15px; font-size: 1.4em;">📋 Search Results Summary</h3>';
         
-        if (!usingApi) {
-            html += '<div style="background: #fff3cd; border: 1px solid #ffc107; padding: 15px; border-radius: 8px; margin-bottom: 20px; color: #856404;">';
-            html += '<strong>提示：</strong>未配置Google API，显示的是搜索链接。配置API后可获得更详细的搜索结果。';
+        // 如果有错误，显示警告
+        if (data.summary_error) {
+            html += '<div style="background: #fff3cd; border: 1px solid #ffc107; padding: 15px; border-radius: 8px; margin-bottom: 15px; color: #856404;">';
+            html += '<strong>⚠️ Warning:</strong> AI summary failed. Showing search results instead.';
             html += '</div>';
         }
         
-        results.forEach(result => {
-            if (result.is_link_only) {
-                html += `
-                    <div class="search-result-item">
-                        <h3><a href="${result.link}" target="_blank">${result.title}</a></h3>
-                        <p>${result.snippet}</p>
-                        <div class="result-link"><a href="${result.link}" target="_blank">点击访问Google搜索</a></div>
-                    </div>
-                `;
-            } else {
-                html += `
-                    <div class="search-result-item">
-                        <h3><a href="${result.link}" target="_blank">${result.title}</a></h3>
-                        <p>${result.snippet}</p>
-                        <div class="result-link"><a href="${result.link}" target="_blank">${result.link}</a></div>
-                    </div>
-                `;
-            }
-        });
+        html += '<div style="line-height: 1.8; color: #444; white-space: pre-wrap; margin-bottom: 20px;">';
+        html += data.summary || 'No summary available';
+        html += '</div>';
+        html += '</div>';
+        
+        // 显示参考链接
+        if (data.references && data.references.length > 0) {
+            html += '<div style="background: #f8f9fa; padding: 20px; border-radius: 10px; border-top: 2px solid #e0e0e0;">';
+            html += '<h3 style="color: #667eea; margin-bottom: 15px; font-size: 1.2em;">📚 Reference Sources</h3>';
+            html += '<p style="color: #666; margin-bottom: 15px;">The following articles were found from web search. Click the links to view the original articles:</p>';
+            html += '<ul style="list-style: none; padding: 0;">';
+            data.references.forEach((ref, index) => {
+                if (ref.link) {
+                    html += `<li style="margin-bottom: 10px;"><a href="${ref.link}" target="_blank" style="color: #667eea; text-decoration: none; word-break: break-all;">${index + 1}. ${ref.title || ref.link}</a></li>`;
+                } else {
+                    html += `<li style="margin-bottom: 10px; color: #666;">${index + 1}. ${ref.title || '无标题'}</li>`;
+                }
+            });
+            html += '</ul>';
+            html += '<p style="color: #999; font-size: 0.9em; margin-top: 15px; font-style: italic;">*Note: The above links are for reference only. Please verify the actual information.*</p>';
+            html += '</div>';
+        }
+        
         searchResults.innerHTML = html;
     }
 
