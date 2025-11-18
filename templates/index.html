@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能旅游计划生成器</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🌍 智能旅游计划生成器</h1>
+            <p class="subtitle">输入您的旅游信息，AI将为您生成详细的旅游计划</p>
+        </header>
+
+        <main>
+            <div class="form-container">
+                <form id="travelForm">
+                    <div class="form-group">
+                        <label for="days">旅游天数 *</label>
+                        <input type="number" id="days" name="days" min="1" max="30" required placeholder="例如：3">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="destination">目的地 *</label>
+                        <input type="text" id="destination" name="destination" required placeholder="例如：北京、上海、日本东京">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="budget">预算（可选）</label>
+                        <input type="text" id="budget" name="budget" placeholder="例如：5000元、1000美元">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="preferences">兴趣偏好（可选）</label>
+                        <textarea id="preferences" name="preferences" rows="3" placeholder="例如：喜欢历史文化、美食、自然风光、购物等"></textarea>
+                    </div>
+
+                    <button type="submit" id="generateBtn" class="btn-primary">
+                        <span class="btn-text">生成旅游计划</span>
+                        <span class="btn-loader" style="display: none;">生成中...</span>
+                    </button>
+                </form>
+            </div>
+
+            <div id="resultContainer" class="result-container" style="display: none;">
+                <div class="result-header">
+                    <h2>您的旅游计划</h2>
+                    <button id="copyBtn" class="btn-secondary">复制计划</button>
+                </div>
+                <div id="planContent" class="plan-content"></div>
+            </div>
+
+            <div id="errorContainer" class="error-container" style="display: none;">
+                <div class="error-message"></div>
+            </div>
+        </main>
+
+        <footer>
+            <p>使用 DeepSeek API 生成 | 请确保已配置 API 密钥</p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
+
