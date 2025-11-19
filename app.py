@@ -750,13 +750,17 @@ def generate_plan():
         llm_mode = data.get('llm_mode', LLM_MODE).lower()
         
         # 搜索上下文 (可能为空)
-        search_context = data.get('search_context', '') 
+        search_context = data.get('search_context', '')
+        
+        # 用户自定义攻略内容 (可能为空)
+        custom_guide = data.get('custom_guide', '').strip() 
         
         if not days or not destination:
             return jsonify({'success': False, 'error': 'Missing info'}), 400
 
         logger.info(f"生成请求: {destination}, {days}天, 模式: {llm_mode}")
         logger.info(f"搜索上下文长度: {len(search_context) if search_context else 0}")
+        logger.info(f"自定义攻略长度: {len(custom_guide) if custom_guide else 0}")
 
         # ==========================================
         # 关键修复：初始化所有变量，避免 UnboundLocalError
@@ -777,30 +781,55 @@ def generate_plan():
             try:
                 # 1. 准备知识库 (VectorStore)
                 vectorstore = None
+                all_new_texts = []  # 收集所有需要保存的新文本
+                has_custom_guide = False  # 标记是否有自定义攻略
+                has_search_context = False  # 标记是否有搜索上下文
+                has_history = False  # 标记是否有历史知识库
                 
                 # 尝试加载历史知识库
                 hist_vs = load_destination_knowledge_base(destination)
+                if hist_vs:
+                    has_history = True
                 
+                # 收集所有新的内容源
+                new_docs_list = []
+                
+                # 处理用户自定义攻略
+                if custom_guide and len(custom_guide.strip()) > 10:
+                    logger.info("检测到用户自定义攻略，添加到知识库...")
+                    custom_docs = create_documents_from_text(custom_guide, {'source': 'user_custom_guide'})
+                    new_docs_list.extend(custom_docs)
+                    all_new_texts.append(custom_guide)
+                    has_custom_guide = True
+                    logger.info(f"用户自定义攻略已处理，长度: {len(custom_guide)} 字符")
+                
+                # 处理搜索上下文
                 if search_context and len(search_context.strip()) > 10:
-                    # Case A: 有新的搜索结果
                     logger.info("使用新的搜索上下文...")
-                    new_docs = create_documents_from_text(search_context, {'source': 'current_search'})
-                    
-                    # 保存新知识到磁盘
-                    save_knowledge_base(destination, [search_context], data.get('references', []))
+                    search_docs = create_documents_from_text(search_context, {'source': 'current_search'})
+                    new_docs_list.extend(search_docs)
+                    all_new_texts.append(search_context)
+                    has_search_context = True
+                
+                # 如果有新内容，保存到知识库并合并到向量库
+                if new_docs_list:
+                    # 保存所有新知识到磁盘
+                    if all_new_texts:
+                        save_knowledge_base(destination, all_new_texts, data.get('references', []))
+                        logger.info(f"已保存 {len(all_new_texts)} 个新内容到知识库")
                     
                     if hist_vs:
-                        # 简单合并：向内存中的历史库添加新文档
-                        hist_vs.add_documents(new_docs)
+                        # 合并：向内存中的历史库添加新文档
+                        hist_vs.add_documents(new_docs_list)
                         vectorstore = hist_vs
-                        logger.info("已合并历史库与新搜索内容")
+                        logger.info(f"已合并历史库与新内容（自定义攻略: {has_custom_guide}, 搜索: {has_search_context}）")
                     else:
-                        vectorstore = create_vectorstore_from_documents(new_docs)
-                        logger.info("使用新搜索内容创建知识库")
+                        vectorstore = create_vectorstore_from_documents(new_docs_list)
+                        logger.info("使用新内容创建知识库")
                         
                 elif hist_vs:
-                    # Case B: 无新搜索，但有历史记录
-                    logger.info("未提供新搜索结果，使用历史知识库...")
+                    # Case B: 无新内容，但有历史记录
+                    logger.info("未提供新内容，使用历史知识库...")
                     vectorstore = hist_vs
                     
                 # 2. 决策：使用 RAG 还是 普通生成
@@ -865,7 +894,19 @@ Write in English. Be specific and practical."""
 
                 # 在计划文本前添加RAG使用状态提示（使用HTML格式，前端会直接渲染）
                 if used_rag:
-                    rag_status = "✓ RAG Enabled (Retrieval-Augmented Generation)"
+                    # 构建状态信息，显示使用了哪些数据源
+                    sources = []
+                    if has_custom_guide:
+                        sources.append("Custom Guide")
+                    if has_search_context:
+                        sources.append("Search Results")
+                    if has_history:
+                        sources.append("History")
+                    
+                    if sources:
+                        rag_status = f"✓ RAG Enabled (Retrieval-Augmented Generation) - Sources: {', '.join(sources)}"
+                    else:
+                        rag_status = "✓ RAG Enabled (Retrieval-Augmented Generation)"
                 else:
                     rag_status = "○ RAG Disabled (Using LLM Native Knowledge)"
                 plan_with_status = f"<div style='color: #666; font-size: 0.85em; margin-bottom: 10px; padding: 5px; background-color: #f5f5f5; border-left: 3px solid #1459CF;'>{rag_status}</div>\n\n{plan}"

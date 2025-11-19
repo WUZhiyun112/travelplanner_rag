@@ -87,6 +87,34 @@ document.addEventListener('DOMContentLoaded', function() {
         debugLog('Error: Search elements not found', elementsCheck);
     }
 
+    // Custom guide input (only shown in local mode)
+    const llmModeSelect = document.getElementById('llmMode');
+    const customGuideGroup = document.getElementById('customGuideGroup');
+    const customGuideInput = document.getElementById('customGuide');
+    
+    // Show/hide custom guide input based on LLM mode
+    function toggleCustomGuide() {
+        if (llmModeSelect && customGuideGroup) {
+            if (llmModeSelect.value === 'local') {
+                customGuideGroup.style.display = 'block';
+            } else {
+                customGuideGroup.style.display = 'none';
+                // Clear the input when switching to cloud mode
+                if (customGuideInput) {
+                    customGuideInput.value = '';
+                }
+            }
+        }
+    }
+    
+    // Initial state
+    toggleCustomGuide();
+    
+    // Listen for mode changes
+    if (llmModeSelect) {
+        llmModeSelect.addEventListener('change', toggleCustomGuide);
+    }
+
     form.addEventListener('submit', async function(e) {
         e.preventDefault();
         
@@ -124,6 +152,14 @@ document.addEventListener('DOMContentLoaded', function() {
             preferences: document.getElementById('preferences').value,
             llm_mode: document.getElementById('llmMode').value
         };
+        
+        // 如果使用本地 LLM，添加自定义攻略内容
+        if (formData.llm_mode === 'local' && customGuideInput && customGuideInput.value.trim()) {
+            formData.custom_guide = customGuideInput.value.trim();
+            debugLog('Including custom guide in plan generation request', {
+                customGuideLength: formData.custom_guide.length
+            });
+        }
         
         // 如果使用本地 LLM 且有搜索上下文，将搜索信息添加到请求中
         if (formData.llm_mode === 'local' && searchContextData && searchContextData.summary) {

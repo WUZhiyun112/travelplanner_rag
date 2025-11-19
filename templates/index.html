@@ -75,6 +75,12 @@
                         <small class="budget-hint">Cloud mode uses DeepSeek API. Local mode requires Ollama running on your machine.</small>
                     </div>
 
+                    <div class="form-group" id="customGuideGroup" style="display: none;">
+                        <label for="customGuide">Custom Travel Guide (Optional)</label>
+                        <textarea id="customGuide" name="customGuide" rows="6" placeholder="Paste your own travel guide here (e.g., from Xiaohongshu, travel blogs, etc.). This content will be integrated with AI knowledge to generate a personalized travel plan."></textarea>
+                        <small class="budget-hint">💡 Tip: Paste your own travel guide content here. The AI will combine it with its knowledge base to create a more personalized plan.</small>
+                    </div>
+
                     <button type="submit" id="generateBtn" class="btn-primary">
                         <span class="btn-text">Generate Travel Plan</span>
                         <span class="btn-loader" style="display: none;">Generating your travel plan, please wait...</span>
