@@ -30,3 +30,7 @@ instance/
 logs/
 *.log
 
+# Vector Store (RAG)
+vector_store/
+knowledge_base/
+

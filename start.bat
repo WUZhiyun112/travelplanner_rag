@@ -5,7 +5,7 @@ echo ========================================
 echo.
 echo 提示：如果首次运行，请先执行 pip install -r requirements.txt
 echo.
-echo 启动后请在浏览器中访问: http://localhost:5000
+echo 启动后请在浏览器中访问: http://localhost:5001
 echo.
 echo 按 Ctrl+C 可以停止程序
 echo.
