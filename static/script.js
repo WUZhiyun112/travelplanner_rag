@@ -16,8 +16,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const searchResults = document.getElementById('searchResults');
     
     // Debug information display
-    const debugContainer = document.getElementById('debugContainer');
-    const debugContent = document.getElementById('debugContent');
+    // const debugContainer = document.getElementById('debugContainer');
+    // const debugContent = document.getElementById('debugContent');
     
     // Set custom validation messages in English
     const daysInput = document.getElementById('days');
@@ -64,14 +64,14 @@ document.addEventListener('DOMContentLoaded', function() {
             logMessage += '\n' + JSON.stringify(data, null, 2);
         }
         
-        // Display on page
-        if (debugContainer && debugContent) {
-            debugContainer.style.display = 'block';
-            debugContent.textContent += logMessage + '\n\n';
-            debugContent.scrollTop = debugContent.scrollHeight;
-        }
+        // Display on page (commented out - debug info hidden from UI)
+        // if (debugContainer && debugContent) {
+        //     debugContainer.style.display = 'block';
+        //     debugContent.textContent += logMessage + '\n\n';
+        //     debugContent.scrollTop = debugContent.scrollHeight;
+        // }
         
-        // Also output to console
+        // Also output to console (still active for debugging)
         console.log(message, data || '');
     }
     
