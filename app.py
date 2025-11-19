@@ -589,19 +589,29 @@ def search():
             # 尝试从搜索查询中提取目的地，或使用传入的目的地参数
             destination = data.get('destination', '')
             if not destination:
-                # 尝试从查询中提取目的地（简单启发式方法）
-                # 假设查询格式可能是 "目的地 关键词" 或 "关键词 目的地"
+                # 尝试从查询中提取目的地（改进的启发式方法）
+                # 将多词目的地和单词目的地分开处理，提高识别准确率
                 query_words = query.split()
-                # 常见城市/国家名称（可以扩展）
-                common_destinations = ['tokyo', 'beijing', 'shanghai', 'paris', 'london', 'new york', 
-                                     'bangkok', 'singapore', 'seoul', 'osaka', 'kyoto', 'taipei',
-                                     'hong kong', 'sydney', 'melbourne', 'dubai', 'istanbul', 'rome',
-                                     'barcelona', 'amsterdam', 'vienna', 'prague', 'berlin', 'moscow']
-                for word in query_words:
-                    word_lower = word.lower().strip('.,!?')
-                    if word_lower in common_destinations:
-                        destination = word_lower.title()
+                multi_word_destinations = ['hong kong', 'new york']
+                single_word_destinations = ['tokyo', 'beijing', 'shanghai', 'paris', 'london', 
+                                          'bangkok', 'singapore', 'seoul', 'osaka', 'kyoto', 'taipei',
+                                          'sydney', 'melbourne', 'dubai', 'istanbul', 'rome',
+                                          'barcelona', 'amsterdam', 'vienna', 'prague', 'berlin', 'moscow']
+                
+                # 首先检查多词目的地（2-3个连续词的组合）
+                query_lower = query.lower()
+                for multi_dest in multi_word_destinations:
+                    if multi_dest in query_lower:
+                        destination = multi_dest.title()
                         break
+                
+                # 如果没找到多词目的地，再检查单词目的地
+                if not destination:
+                    for word in query_words:
+                        word_lower = word.lower().strip('.,!?')
+                        if word_lower in single_word_destinations:
+                            destination = word_lower.title()
+                            break
                 
                 # 如果还是没找到，使用查询的前几个词作为目的地
                 if not destination and query_words:
@@ -1023,5 +1033,7 @@ def export_ics():
         }), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5001)
+    # 禁用自动重载，避免因系统文件变化（如 torch、Python 标准库）导致服务器不断重启
+    # debug=True 仍然保留，用于显示详细错误信息
+    app.run(debug=True, use_reloader=False, host='0.0.0.0', port=5001)
 
